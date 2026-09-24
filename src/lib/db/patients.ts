@@ -62,7 +62,7 @@ export async function getPatients(
             first_name,
             last_name,
             gender,
-            birth_date
+            birth_date::text AS birth_date
           FROM patients
           WHERE source = $1
           ORDER BY last_name NULLS LAST,
@@ -85,5 +85,67 @@ export async function getPatients(
   return {
     patients: patientsResult.rows,
     total: countResult.rows[0].total,
+  };
+}
+
+export async function getPatientById(id: string) {
+  const patientResult = await db.query(
+    `
+      SELECT
+        id,
+        source,
+        external_id,
+        first_name,
+        last_name,
+        gender,
+        birth_date::text AS birth_date
+      FROM patients
+      WHERE id = $1::uuid
+    `,
+    [id]
+  );
+
+  if (patientResult.rows.length === 0) {
+    return null;
+  }
+
+  const [conditionsResult, medicationsResult] =
+    await Promise.all([
+      db.query(
+        `
+          SELECT
+            id,
+            external_id,
+            code,
+            display,
+            clinical_status
+          FROM conditions
+          WHERE patient_id = $1::uuid
+          ORDER BY display
+        `,
+        [id]
+      ),
+
+      db.query(
+        `
+          SELECT
+            id,
+            external_id,
+            code,
+            display,
+            status,
+            intent
+          FROM medications
+          WHERE patient_id = $1::uuid
+          ORDER BY display
+        `,
+        [id]
+      ),
+    ]);
+
+  return {
+    ...patientResult.rows[0],
+    conditions: conditionsResult.rows,
+    medications: medicationsResult.rows,
   };
 }

@@ -1,56 +1,35 @@
-import { db } from "@/lib/db";
+import { getPatients } from "@/lib/db/patients";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
 
     const source = searchParams.get("source") ?? "HAPI";
-    const page = Math.max(
-      Number(searchParams.get("page") ?? 1),
-      1
+
+    const requestedPage = Number(
+      searchParams.get("page") ?? 1
     );
 
+    const page =
+      Number.isFinite(requestedPage) && requestedPage > 0
+        ? requestedPage
+        : 1;
+
     const limit = 20;
-    const offset = (page - 1) * limit;
 
-    const [patientsResult, countResult] = await Promise.all([
-      db.query(
-        `
-          SELECT
-            id,
-            source,
-            external_id,
-            first_name,
-            last_name,
-            gender,
-            birth_date
-          FROM patients
-          WHERE source = $1
-          ORDER BY last_name NULLS LAST, first_name NULLS LAST
-          LIMIT $2 OFFSET $3
-        `,
-        [source, limit, offset]
-      ),
-
-      db.query(
-        `
-          SELECT COUNT(*)::int AS total
-          FROM patients
-          WHERE source = $1
-        `,
-        [source]
-      ),
-    ]);
+    const { patients, total } = await getPatients(
+      source,
+      page,
+      limit
+    );
 
     return Response.json({
-      data: patientsResult.rows,
+      data: patients,
       pagination: {
         page,
         limit,
-        total: countResult.rows[0].total,
-        totalPages: Math.ceil(
-          countResult.rows[0].total / limit
-        ),
+        total,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error) {

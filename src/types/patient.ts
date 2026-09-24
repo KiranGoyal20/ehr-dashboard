@@ -8,6 +8,28 @@ export interface Patient {
   birth_date: string | null;
 }
 
+export interface Condition {
+  id: string;
+  external_id: string;
+  code: string | null;
+  display: string | null;
+  clinical_status: string | null;
+}
+
+export interface Medication {
+  id: string;
+  external_id: string;
+  code: string | null;
+  display: string | null;
+  status: string | null;
+  intent: string | null;
+}
+
+export interface PatientDetails extends Patient {
+  conditions: Condition[];
+  medications: Medication[];
+}
+
 export interface PatientResponse {
   data: Patient[];
   pagination: {
