@@ -1,5 +1,7 @@
 import { syncHapiPatients } from "@/lib/ehr/hapi/sync";
 
+export const maxDuration = 60; // Max allowed serverless duration on Vercel Hobby
+
 export async function POST() {
   try {
     const result = await syncHapiPatients();

@@ -8,9 +8,9 @@ import {
 export const ORACLE_BASE_URL =
     "https://fhir-open.cerner.com/r4/ec2458f2-1e24-41c8-b71b-0e701af7583d";
 
-const MAX_RETRIES = 3;
-const REQUEST_TIMEOUT_MS = 15000; // 15 seconds: prevents hanging indefinitely
-const BASE_DELAY_MS = 1000;
+const MAX_RETRIES = 2;
+const REQUEST_TIMEOUT_MS = 45000; // 45 seconds: accommodates multi-tenant FHIR sandbox search latency
+const BASE_DELAY_MS = 1500;
 const MAX_RETRY_AFTER_MS = 30000; // 30 seconds maximum delay ceiling
 
 function sleep(ms: number) {
@@ -78,6 +78,7 @@ async function fetchOracle<T>(
         response = await fetch(url, {
             headers: {
                 Accept: "application/fhir+json",
+                "User-Agent": "ehr-dashboard/1.0 (Health Integration Client)",
             },
             cache: "no-store",
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -91,8 +92,7 @@ async function fetchOracle<T>(
                 (error.name === "TimeoutError" || error.name === "AbortError");
 
             console.warn(
-                `Oracle fetch ${isTimeout ? "timed out" : "network failure"} (${
-                    error instanceof Error ? error.message : String(error)
+                `Oracle fetch ${isTimeout ? "timed out" : "network failure"} (${error instanceof Error ? error.message : String(error)
                 }). Retrying attempt ${attempt + 1}/${MAX_RETRIES} in ${delayMs}ms: ${url}`
             );
 
@@ -116,8 +116,7 @@ async function fetchOracle<T>(
         const delayMs = getBackoffWithJitter(attempt, retryAfterMs);
 
         console.warn(
-            `Oracle request returned ${response.status} ${response.statusText}${
-                retryAfter ? ` [Retry-After: ${retryAfter}]` : ""
+            `Oracle request returned ${response.status} ${response.statusText}${retryAfter ? ` [Retry-After: ${retryAfter}]` : ""
             }. Retrying attempt ${attempt + 1}/${MAX_RETRIES} in ${delayMs}ms: ${url}`
         );
 

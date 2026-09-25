@@ -2,9 +2,9 @@ import { FhirBundle, FhirCondition, FhirMedicationRequest, FhirPatient } from ".
 
 const HAPI_BASE_URL = "https://hapi.fhir.org/baseR4";
 
-const MAX_RETRIES = 3;
-const REQUEST_TIMEOUT_MS = 15000;
-const BASE_DELAY_MS = 1000;
+const MAX_RETRIES = 2;
+const REQUEST_TIMEOUT_MS = 45000;
+const BASE_DELAY_MS = 1500;
 const MAX_RETRY_AFTER_MS = 30000;
 
 function sleep(ms: number) {
@@ -53,6 +53,7 @@ async function fetchHapi<T>(url: string, attempt = 0): Promise<T> {
     response = await fetch(url, {
       headers: {
         Accept: "application/fhir+json",
+        "User-Agent": "ehr-dashboard/1.0 (Health Integration Client)",
       },
       cache: "no-store",
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -65,8 +66,7 @@ async function fetchHapi<T>(url: string, attempt = 0): Promise<T> {
         (error.name === "TimeoutError" || error.name === "AbortError");
 
       console.warn(
-        `HAPI fetch ${isTimeout ? "timed out" : "network failure"} (${
-          error instanceof Error ? error.message : String(error)
+        `HAPI fetch ${isTimeout ? "timed out" : "network failure"} (${error instanceof Error ? error.message : String(error)
         }). Retrying attempt ${attempt + 1}/${MAX_RETRIES} in ${delayMs}ms: ${url}`
       );
 
@@ -90,8 +90,7 @@ async function fetchHapi<T>(url: string, attempt = 0): Promise<T> {
     const delayMs = getBackoffWithJitter(attempt, retryAfterMs);
 
     console.warn(
-      `HAPI request returned ${response.status} ${response.statusText}${
-        retryAfter ? ` [Retry-After: ${retryAfter}]` : ""
+      `HAPI request returned ${response.status} ${response.statusText}${retryAfter ? ` [Retry-After: ${retryAfter}]` : ""
       }. Retrying attempt ${attempt + 1}/${MAX_RETRIES} in ${delayMs}ms: ${url}`
     );
 

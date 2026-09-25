@@ -1,17 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { PatientDetails } from "@/types/patient";
 
 export default function PatientDetailsPage() {
     const params = useParams<{ id: string }>();
     const router = useRouter();
+    const searchParams = useSearchParams();
 
     const [patient, setPatient] =
         useState<PatientDetails | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    const activeSource =
+        searchParams.get("source") || patient?.source || "HAPI";
+    const backUrl = `/?source=${activeSource}`;
+    const sourceLabel =
+        activeSource === "ORACLE" ? "Oracle Health" : "HAPI";
 
     useEffect(() => {
         async function loadPatient() {
@@ -66,7 +73,7 @@ export default function PatientDetailsPage() {
                 </p>
 
                 <button
-                    onClick={() => router.push("/")}
+                    onClick={() => router.push(backUrl)}
                     className="mt-4 text-sm font-medium text-gray-700 underline"
                 >
                     Return to dashboard
@@ -84,10 +91,10 @@ export default function PatientDetailsPage() {
         <main className="min-h-screen bg-gray-50 px-6 py-10">
             <div className="mx-auto max-w-5xl">
                 <button
-                    onClick={() => router.back()}
-                    className="mb-6 text-sm font-medium text-gray-600 hover:text-gray-900"
+                    onClick={() => router.push(backUrl)}
+                    className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 transition hover:text-gray-900"
                 >
-                    ← Back to patients
+                    ← Back to {sourceLabel} patients
                 </button>
 
                 <section className="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">

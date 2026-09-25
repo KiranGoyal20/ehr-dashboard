@@ -14,13 +14,11 @@ const sources: { id: EhrSource; label: string; enabled: boolean }[] = [
 
 export default function PatientDashboard() {
     const searchParams = useSearchParams();
+    const router = useRouter();
 
-    const initialSource =
-        searchParams.get("source") === "ORACLE"
-            ? "ORACLE"
-            : "HAPI";
+    const source: EhrSource =
+        searchParams.get("source") === "ORACLE" ? "ORACLE" : "HAPI";
 
-    const [source, setSource] = useState(initialSource);
     const [patients, setPatients] = useState<Patient[]>([]);
     const [page, setPage] = useState(1);
     const [pagination, setPagination] =
@@ -28,17 +26,33 @@ export default function PatientDashboard() {
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
+    const [syncing, setSyncing] = useState(false);
+    const [syncFeedback, setSyncFeedback] = useState<{
+        type: "success" | "error";
+        message: string;
+    } | null>(null);
 
-    const router = useRouter();
+    // Whenever source in URL changes, reset pagination and clear stale patients immediately
+    useEffect(() => {
+        setPage(1);
+        setPatients([]);
+        setPagination(null);
+        setError(null);
+        setSyncFeedback(null);
+    }, [source]);
 
     useEffect(() => {
+        const controller = new AbortController();
+
         async function loadPatients() {
             try {
                 setLoading(true);
                 setError(null);
 
                 const response = await fetch(
-                    `/api/patients?source=${source}&page=${page}`
+                    `/api/patients?source=${source}&page=${page}`,
+                    { signal: controller.signal }
                 );
 
                 if (!response.ok) {
@@ -47,22 +61,85 @@ export default function PatientDashboard() {
 
                 const result: PatientResponse = await response.json();
 
-                setPatients(result.data);
-                setPagination(result.pagination);
-            } catch (error) {
-                console.error(error);
-                setError("Unable to load patient data.");
+                if (!controller.signal.aborted) {
+                    setPatients(result.data);
+                    setPagination(result.pagination);
+                }
+            } catch (err: unknown) {
+                if (err instanceof Error && err.name === "AbortError") {
+                    return; // Ignore aborted requests from tab switching
+                }
+                console.error(err);
+                setError("Unable to load patient data. Please check your connection and try again.");
             } finally {
-                setLoading(false);
+                if (!controller.signal.aborted) {
+                    setLoading(false);
+                }
             }
         }
 
         loadPatients();
-    }, [source, page]);
+
+        return () => {
+            // Cancel any in-flight request when source or page changes
+            controller.abort();
+        };
+    }, [source, page, reloadKey]);
+
+    function handleRetry() {
+        setReloadKey((k) => k + 1);
+    }
+
+    async function handleSync() {
+        if (source === "EPIC" || syncing) return;
+
+        try {
+            setSyncing(true);
+            setSyncFeedback(null);
+
+            const endpoint =
+                source === "ORACLE" ? "/api/sync/oracle" : "/api/sync/hapi";
+
+            const response = await fetch(endpoint, { method: "POST" });
+            const data = await response.json();
+
+            if (!response.ok || data.status === "error" || data.status === "failed") {
+                throw new Error(data.error || data.message || "Sync request failed");
+            }
+
+            const pCount = data.patientsProcessed ?? 0;
+            const cCount = data.conditionsProcessed ?? 0;
+            const mCount = data.medicationsProcessed ?? 0;
+
+            setSyncFeedback({
+                type: "success",
+                message: `Successfully synced ${source}: ${pCount} patients, ${cCount} conditions, and ${mCount} medications processed.`,
+            });
+
+            handleRetry();
+        } catch (err: unknown) {
+            console.error(err);
+            setSyncFeedback({
+                type: "error",
+                message:
+                    err instanceof Error
+                        ? err.message
+                        : "Failed to trigger synchronization.",
+            });
+        } finally {
+            setSyncing(false);
+        }
+    }
 
     function changeSource(newSource: EhrSource) {
-        setSource(newSource);
+        if (newSource === source) return;
+
+        setPatients([]);
+        setPagination(null);
         setPage(1);
+        setError(null);
+        setSyncFeedback(null);
+        setLoading(true);
 
         router.replace(`/?source=${newSource}`);
     }
@@ -78,15 +155,56 @@ export default function PatientDashboard() {
     return (
         <main className="min-h-screen bg-gray-50 px-6 py-10">
             <div className="mx-auto max-w-6xl">
-                <div className="mb-8">
-                    <h1 className="text-3xl font-semibold text-gray-900">
-                        EHR Patient Dashboard
-                    </h1>
+                <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h1 className="text-3xl font-semibold text-gray-900">
+                            EHR Patient Dashboard
+                        </h1>
 
-                    <p className="mt-2 text-gray-600">
-                        Patient data synchronized from FHIR sandbox environments.
-                    </p>
+                        <p className="mt-2 text-gray-600">
+                            Patient data synchronized from FHIR sandbox environments.
+                        </p>
+                    </div>
+
+                    <button
+                        disabled={syncing || source === "EPIC"}
+                        onClick={handleSync}
+                        className="inline-flex items-center gap-2 self-start rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        <svg
+                            className={`h-4 w-4 text-gray-600 ${syncing ? "animate-spin" : ""}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="2"
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            />
+                        </svg>
+                        {syncing ? `Syncing ${source}...` : `Sync ${source} Data`}
+                    </button>
                 </div>
+
+                {syncFeedback && (
+                    <div
+                        className={`mb-6 flex items-center justify-between rounded-lg p-4 text-sm ${
+                            syncFeedback.type === "success"
+                                ? "border border-emerald-200 bg-emerald-50 text-emerald-800"
+                                : "border border-red-200 bg-red-50 text-red-800"
+                        }`}
+                    >
+                        <span>{syncFeedback.message}</span>
+                        <button
+                            onClick={() => setSyncFeedback(null)}
+                            className="ml-3 font-semibold hover:opacity-75"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                )}
 
                 <div className="mb-6 flex gap-3">
                     {sources.map((item) => (
@@ -120,9 +238,11 @@ export default function PatientDashboard() {
                             </h2>
 
                             <p className="mt-1 text-sm text-gray-500">
-                                {pagination
-                                    ? `${pagination.total} records`
-                                    : "Loading records..."}
+                                {loading
+                                    ? "Loading records..."
+                                    : pagination
+                                        ? `${pagination.total} records`
+                                        : "0 records"}
                             </p>
                         </div>
 
@@ -132,20 +252,77 @@ export default function PatientDashboard() {
                     </div>
 
                     {loading && (
-                        <div className="p-10 text-center text-gray-500">
-                            Loading patients...
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left">
+                                <thead className="bg-gray-50 text-sm text-gray-600">
+                                    <tr>
+                                        <th className="px-6 py-3 font-medium">Patient</th>
+                                        <th className="px-6 py-3 font-medium">Gender</th>
+                                        <th className="px-6 py-3 font-medium">Date of Birth</th>
+                                        <th className="px-6 py-3 font-medium">FHIR ID</th>
+                                        <th className="px-6 py-3 font-medium text-right">Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                    {[...Array(5)].map((_, i) => (
+                                        <tr key={i} className="animate-pulse">
+                                            <td className="px-6 py-4">
+                                                <div className="h-4 w-36 rounded bg-gray-200"></div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="h-4 w-16 rounded bg-gray-200"></div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="h-4 w-24 rounded bg-gray-200"></div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="h-4 w-44 rounded bg-gray-200"></div>
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <div className="ml-auto h-4 w-4 rounded bg-gray-200"></div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     )}
 
-                    {error && (
-                        <div className="p-10 text-center text-red-600">
-                            {error}
+                    {error && !loading && (
+                        <div className="p-8 text-center">
+                            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600">
+                                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <h3 className="mt-3 text-base font-semibold text-gray-900">
+                                Failed to load {source} patients
+                            </h3>
+                            <p className="mt-1 text-sm text-gray-500">
+                                {error}
+                            </p>
+                            <button
+                                onClick={handleRetry}
+                                className="mt-4 inline-flex items-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800"
+                            >
+                                Try Again
+                            </button>
                         </div>
                     )}
 
                     {!loading && !error && patients.length === 0 && (
-                        <div className="p-10 text-center text-gray-500">
-                            No patients found.
+                        <div className="p-12 text-center">
+                            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500">
+                                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+                                </svg>
+                            </div>
+                            <h3 className="mt-3 text-base font-semibold text-gray-900">
+                                No {source} patients found
+                            </h3>
+                            <p className="mt-1 text-sm text-gray-500">
+                                No records are currently available in the database for this EHR source.
+                            </p>
                         </div>
                     )}
 
