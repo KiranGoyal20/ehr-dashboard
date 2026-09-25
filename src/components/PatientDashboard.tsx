@@ -1,19 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Patient, PatientResponse } from "@/types/patient";
 
 type EhrSource = "HAPI" | "ORACLE" | "EPIC";
 
 const sources: { id: EhrSource; label: string; enabled: boolean }[] = [
     { id: "HAPI", label: "HAPI FHIR", enabled: true },
-    { id: "ORACLE", label: "Oracle Health", enabled: false },
+    { id: "ORACLE", label: "Oracle Health", enabled: true },
     { id: "EPIC", label: "Epic", enabled: false },
 ];
 
 export default function PatientDashboard() {
-    const [source, setSource] = useState<EhrSource>("HAPI");
+    const searchParams = useSearchParams();
+
+    const initialSource =
+        searchParams.get("source") === "ORACLE"
+            ? "ORACLE"
+            : "HAPI";
+
+    const [source, setSource] = useState(initialSource);
     const [patients, setPatients] = useState<Patient[]>([]);
     const [page, setPage] = useState(1);
     const [pagination, setPagination] =
@@ -56,6 +63,8 @@ export default function PatientDashboard() {
     function changeSource(newSource: EhrSource) {
         setSource(newSource);
         setPage(1);
+
+        router.replace(`/?source=${newSource}`);
     }
 
     function formatDate(date: string | null) {
@@ -85,8 +94,7 @@ export default function PatientDashboard() {
                             key={item.id}
                             disabled={!item.enabled}
                             onClick={() => changeSource(item.id)}
-                            className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${
-                                source === item.id
+                            className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${source === item.id
                                 ? "border-gray-900 bg-gray-900 text-white"
                                 : item.enabled
                                     ? "border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
@@ -169,7 +177,7 @@ export default function PatientDashboard() {
                                         {patients.map((patient) => (
                                             <tr
                                                 key={patient.id}
-                                                onClick={() => router.push(`/patients/${patient.id}`)}
+                                                onClick={() => router.push(`/patients/${patient.id}?source=${source}`)}
                                                 className="cursor-pointer hover:bg-gray-50"
                                             >
                                                 <td className="px-6 py-4 font-medium text-gray-900">
