@@ -9,15 +9,20 @@ type EhrSource = "HAPI" | "ORACLE" | "EPIC";
 const sources: { id: EhrSource; label: string; enabled: boolean }[] = [
     { id: "HAPI", label: "HAPI FHIR", enabled: true },
     { id: "ORACLE", label: "Oracle Health", enabled: true },
-    { id: "EPIC", label: "Epic", enabled: false },
+    { id: "EPIC", label: "Epic (SMART)", enabled: true },
 ];
 
 export default function PatientDashboard() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
+    const sourceParam = searchParams.get("source");
     const source: EhrSource =
-        searchParams.get("source") === "ORACLE" ? "ORACLE" : "HAPI";
+        sourceParam === "ORACLE"
+            ? "ORACLE"
+            : sourceParam === "EPIC"
+                ? "EPIC"
+                : "HAPI";
 
     const [patients, setPatients] = useState<Patient[]>([]);
     const [page, setPage] = useState(1);
@@ -33,14 +38,31 @@ export default function PatientDashboard() {
         message: string;
     } | null>(null);
 
+    // Watch for OAuth return parameters
+    useEffect(() => {
+        if (searchParams.get("synced") === "true") {
+            setSyncFeedback({
+                type: "success",
+                message: "Successfully authenticated with Epic and synchronized patient clinical data!",
+            });
+        } else if (searchParams.get("error")) {
+            setSyncFeedback({
+                type: "error",
+                message: `Epic OAuth: ${searchParams.get("error")}`,
+            });
+        }
+    }, [searchParams]);
+
     // Whenever source in URL changes, reset pagination and clear stale patients immediately
     useEffect(() => {
         setPage(1);
         setPatients([]);
         setPagination(null);
         setError(null);
-        setSyncFeedback(null);
-    }, [source]);
+        if (!searchParams.get("synced") && !searchParams.get("error") && !searchParams.get("warning")) {
+            setSyncFeedback(null);
+        }
+    }, [source, searchParams]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -91,7 +113,13 @@ export default function PatientDashboard() {
     }
 
     async function handleSync() {
-        if (source === "EPIC" || syncing) return;
+        if (syncing) return;
+
+        // Epic uses interactive SMART on FHIR OAuth 2.0 PKCE launch
+        if (source === "EPIC") {
+            window.location.href = "/api/auth/epic/login";
+            return;
+        }
 
         try {
             setSyncing(true);
@@ -167,7 +195,7 @@ export default function PatientDashboard() {
                     </div>
 
                     <button
-                        disabled={syncing || source === "EPIC"}
+                        disabled={syncing}
                         onClick={handleSync}
                         className="inline-flex items-center gap-2 self-start rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -184,7 +212,11 @@ export default function PatientDashboard() {
                                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                             />
                         </svg>
-                        {syncing ? `Syncing ${source}...` : `Sync ${source} Data`}
+                        {syncing
+                            ? `Syncing ${source}...`
+                            : source === "EPIC"
+                                ? "Connect Epic (SMART OAuth)"
+                                : `Sync ${source} Data`}
                     </button>
                 </div>
 
@@ -318,10 +350,12 @@ export default function PatientDashboard() {
                                 </svg>
                             </div>
                             <h3 className="mt-3 text-base font-semibold text-gray-900">
-                                No {source} patients found
+                                No {source === "EPIC" ? "Epic" : source} patients found
                             </h3>
-                            <p className="mt-1 text-sm text-gray-500">
-                                No records are currently available in the database for this EHR source.
+                            <p className="mt-1 max-w-md text-sm text-gray-500">
+                                {source === "EPIC"
+                                    ? "No Epic patients synced yet. Click \"Connect Epic (SMART OAuth)\" above to authenticate with Epic's open sandbox and import patient data."
+                                    : "No records are currently available in the database for this EHR source."}
                             </p>
                         </div>
                     )}

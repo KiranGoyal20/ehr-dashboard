@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { PatientDetails } from "@/types/patient";
 
+export const dynamic = "force-dynamic";
+
 export default function PatientDetailsPage() {
     const params = useParams<{ id: string }>();
     const router = useRouter();
@@ -18,7 +20,11 @@ export default function PatientDetailsPage() {
         searchParams.get("source") || patient?.source || "HAPI";
     const backUrl = `/?source=${activeSource}`;
     const sourceLabel =
-        activeSource === "ORACLE" ? "Oracle Health" : "HAPI";
+        activeSource === "ORACLE"
+            ? "Oracle Health"
+            : activeSource === "EPIC"
+            ? "Epic"
+            : "HAPI";
 
     useEffect(() => {
         async function loadPatient() {
